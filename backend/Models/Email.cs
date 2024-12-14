@@ -25,6 +25,9 @@ namespace SentimatrixAPI.Models
         [BsonElement("type")]
         public string Type { get; set; } = string.Empty;  // "positive" or "negative"
 
+        [BsonElement("productType")]
+        public string ClassifiedProductType { get; set; }
+
         [BsonElement("time")]
         public DateTime Time { get; set; }
 

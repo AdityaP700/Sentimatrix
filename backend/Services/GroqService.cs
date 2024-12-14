@@ -22,7 +22,7 @@ namespace SentimatrixAPI.Services
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
         }
 
-        public async Task<int> AnalyzeSentiment(string emailContent)
+        public async Task<int> AnalyzeSentiment(string emailContent, Email email)
         {
             try 
             {
@@ -62,6 +62,7 @@ namespace SentimatrixAPI.Services
                 if (int.TryParse(scoreText.Trim(), out int score))
                 {
                     _logger.LogInformation($"Final sentiment score: {score}");
+                    email.ClassifiedProductType = await ClassifyProduct(emailContent);
                     return score;
                 }
 
@@ -71,6 +72,56 @@ namespace SentimatrixAPI.Services
             {
                 _logger.LogError($"Error in AnalyzeSentiment: {ex.Message}");
                 throw;
+            }
+        }
+
+        public async Task<string> ClassifyProduct(string emailBody)
+        {
+            try 
+            {
+                var request = new
+                {
+                    messages = new[]
+                    {
+                        new { role = "system", content = @"You are an expert product classifier. Given an email about a product or service, identify the most specific and precise product category. 
+                        
+                        Rules for classification:
+                        - Be as specific as possible (e.g., 'Wireless Noise-Cancelling Headphones' instead of just 'Electronics')
+                        - If multiple products are mentioned, choose the primary product
+                        - If no clear product is identified, return 'Unspecified Product'
+                        - Respond with ONLY the product category/name" },
+                        new { role = "user", content = emailBody ?? string.Empty }
+                    },
+                    model = GROQ_MODEL
+                };
+
+                var jsonRequest = JsonConvert.SerializeObject(request);
+                _logger.LogInformation($"Product Classification Request to Groq: {jsonRequest}");
+                
+                var content = new StringContent(jsonRequest, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync(GROQ_API_URL, content);
+                response.EnsureSuccessStatusCode();
+
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                _logger.LogInformation($"Product Classification Response from Groq: {jsonResponse}");
+                
+                var result = JsonConvert.DeserializeObject<dynamic>(jsonResponse);
+                
+                if (result?.choices?[0]?.message?.content == null)
+                {
+                    throw new Exception("Invalid response from Groq API for product classification");
+                }
+
+                string productType = result.choices[0].message.content.ToString().Trim();
+                _logger.LogInformation($"Classified Product: {productType}");
+
+                return productType;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error in ClassifyProduct: {ex.Message}");
+                return "Unspecified Product";
             }
         }
 

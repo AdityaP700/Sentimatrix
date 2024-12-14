@@ -65,23 +65,27 @@ namespace SentimatrixAPI.Controllers
 
                 var plainTextBody = ConvertHtmlToPlainText(emailData.Body ?? string.Empty);
                 
-                // Analyze sentiment using Groq
-                int sentimentScore = await _groqService.AnalyzeSentiment(plainTextBody);
-                string response = _groqService.GenerateResponse(sentimentScore, plainTextBody);
-
-                // Create email document for MongoDB
-                var email = new Email
+                // Create the Email object
+                var emailEntity = new Email
                 {
                     Body = plainTextBody,
-                    Score = sentimentScore,
-                    Sender = emailData.SenderEmail ?? string.Empty,
-                    Receiver = emailData.ReceiverEmail ?? string.Empty,
-                    Type = sentimentScore <= 60 ? "positive" : "negative",
+                    Score = 0, // Placeholder for score
+                    Sender = emailData.SenderEmail,
+                    Receiver = emailData.ReceiverEmail,
+                    Type = emailData.Type,
                     Time = DateTime.UtcNow
                 };
 
+                // Analyze sentiment using Groq
+                int sentimentScore = await _groqService.AnalyzeSentiment(plainTextBody, emailEntity);
+                string response = _groqService.GenerateResponse(sentimentScore, plainTextBody);
+
+                // Update email with sentiment score and type
+                emailEntity.Score = sentimentScore;
+                emailEntity.Type = sentimentScore <= 60 ? "positive" : "negative";
+
                 // Store in MongoDB
-                await _emailService.CreateAsync(email);
+                await _emailService.CreateAsync(emailEntity);
 
                 // Store in local JSON files for backward compatibility
                 await StoreEmail(new ProcessedEmail
@@ -97,7 +101,7 @@ namespace SentimatrixAPI.Controllers
                 // If sentiment score is high (negative), notify all connected clients
                 if (sentimentScore > 60)
                 {
-                    await _hubContext.Clients.All.SendAsync("ReceiveSeriousTicket", email);
+                    await _hubContext.Clients.All.SendAsync("ReceiveSeriousTicket", emailEntity);
                 }
 
                 return Ok(new EmailProcessResponse
@@ -153,6 +157,28 @@ namespace SentimatrixAPI.Controllers
         public IActionResult Test()
         {
             return Ok(new { message = "API is working!" });
+        }
+
+        /// <summary>
+        /// Test the email processing functionality without hitting TruBot
+        /// </summary>
+        /// <returns>Processing result with status and message</returns>
+        /// <response code="200">Returns the processing result when successful</response>
+        /// <response code="500">If there's an error processing the email</response>
+        [HttpGet("test-email")]
+        public async Task<IActionResult> TestEmailProcessing()
+        {
+            // Create a test email data object
+            var testEmailData = new EmailData
+            {
+                Subject = "Test Email Subject",
+                Body = "<p>This is a test email body for sentiment analysis.</p>",
+                SenderEmail = "testuser@example.com",
+                ReceiverEmail = "support@company.com"
+            };
+
+            // Call the existing ProcessEmail method with the test data
+            return await ProcessEmail(testEmailData);
         }
 
         private string ConvertHtmlToPlainText(string html)
@@ -224,31 +250,34 @@ namespace SentimatrixAPI.Controllers
                 // Process the email using existing logic
                 var plainTextBody = ConvertHtmlToPlainText(email.Body);
                 
-                // Analyze sentiment using Groq
-                int sentimentScore = await _groqService.AnalyzeSentiment(plainTextBody);
-                
-                // Update email with sentiment score and type
-                email.Score = sentimentScore;
-                email.Type = sentimentScore > 60 ? "negative" : "positive";
-
-                // Log before storing
-                _logger.LogInformation($"Storing email: Subject={email.Subject}, Sender={email.SenderEmail}, Score={email.Score}");
-
-                // Store in MongoDB
-                await _emailService.CreateAsync(new Email
+                // Create the Email object
+                var emailEntity = new Email
                 {
                     Body = plainTextBody,
-                    Score = sentimentScore,
+                    Score = 0, // Placeholder for score
                     Sender = email.SenderEmail,
                     Receiver = email.ReceiverEmail,
                     Type = email.Type,
                     Time = DateTime.UtcNow
-                });
+                };
+
+                // Analyze sentiment using Groq
+                int sentimentScore = await _groqService.AnalyzeSentiment(plainTextBody, emailEntity);
+                
+                // Update email with sentiment score and type
+                emailEntity.Score = sentimentScore;
+                emailEntity.Type = sentimentScore > 60 ? "negative" : "positive";
+
+                // Log before storing
+                _logger.LogInformation($"Storing email: Subject={email.Subject}, Sender={email.SenderEmail}, Score={emailEntity.Score}");
+
+                // Store in MongoDB
+                await _emailService.CreateAsync(emailEntity);
 
                 // If sentiment score is high (negative), notify connected clients
                 if (sentimentScore > 60)
                 {
-                    await _hubContext.Clients.All.SendAsync("ReceiveSeriousTicket", email);
+                    await _hubContext.Clients.All.SendAsync("ReceiveSeriousTicket", emailEntity);
                 }
 
                 return Ok(new
@@ -256,7 +285,7 @@ namespace SentimatrixAPI.Controllers
                     status = "Success",
                     message = "Email processed successfully",
                     sentimentScore = sentimentScore,
-                    type = email.Type
+                    type = emailEntity.Type
                 });
             }
             catch (Exception ex)

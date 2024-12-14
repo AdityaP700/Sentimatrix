@@ -9,6 +9,8 @@ using SentimatrixAPI.Models;
 using SentimatrixAPI.Services;
 using Microsoft.Extensions.Options;
 using SentimatrixAPI.Data;
+using Microsoft.AspNetCore.SignalR;
+using SentimatrixAPI.Hubs;
 
 namespace SentimatrixAPI.Controllers
 {
@@ -18,55 +20,64 @@ namespace SentimatrixAPI.Controllers
     {
         private readonly EmailService _emailService;
         private readonly ILogger<EmailController> _logger;
+        private readonly ILogger<EmailProcessController> _emailProcessLogger;
         private readonly IMongoCollection<EmailData> _emailCollection;
+        private readonly GroqService _groqService;
+        private readonly IHubContext<TicketHub> _hubContext;
 
         public EmailController(
             EmailService emailService, 
             ILogger<EmailController> logger, 
             IMongoDatabase database,
-            IOptions<MongoDBSettings> settings)
+            IOptions<MongoDBSettings> settings,
+            GroqService groqService,
+            IHubContext<TicketHub> hubContext,
+            ILogger<EmailProcessController> emailProcessLogger)
         {
             _emailService = emailService ?? throw new ArgumentNullException(nameof(emailService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _emailCollection = database.GetCollection<EmailData>(settings.Value.EmailsCollectionName);
+            _groqService = groqService ?? throw new ArgumentNullException(nameof(groqService));
+            _hubContext = hubContext ?? throw new ArgumentNullException(nameof(hubContext));
+            _emailProcessLogger = emailProcessLogger ?? throw new ArgumentNullException(nameof(emailProcessLogger));
             _logger.LogInformation("Successfully connected to the Email database.");
         }
 
         [HttpGet("sentiment/{period}")]
         public async Task<IActionResult> GetSentimentTrend(string period)
-{
-    try
-    {
-        DateTime startDate = period.ToUpper() switch
         {
-            "1D" => DateTime.UtcNow.AddDays(-1),
-            "5D" => DateTime.UtcNow.AddDays(-5),
-            "1W" => DateTime.UtcNow.AddDays(-7),
-            "1M" => DateTime.UtcNow.AddMonths(-1),
-            _ => throw new ArgumentException("Invalid time period")
-        };
-
-        var results = await _emailCollection
-            .Aggregate()
-            .Match(Builders<EmailData>.Filter.Gte(e => e.ReceivedDate, startDate))
-            .Group(e => e.ReceivedDate.Date, 
-                g => new SentimentData 
+            try
+            {
+                DateTime startDate = period.ToUpper() switch
                 {
-                    Period = g.Key.ToString("yyyy-MM-dd"),
-                    AverageScore = g.Average(x => x.Score),
-                    Count = g.Count()
-                })
-            .Sort(Builders<SentimentData>.Sort.Ascending(x => x.Period))
-            .ToListAsync();
+                    "1D" => DateTime.UtcNow.AddDays(-1),
+                    "5D" => DateTime.UtcNow.AddDays(-5),
+                    "1W" => DateTime.UtcNow.AddDays(-7),
+                    "1M" => DateTime.UtcNow.AddMonths(-1),
+                    _ => throw new ArgumentException("Invalid time period")
+                };
 
-        return Ok(results);
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error retrieving sentiment trend");
-        return StatusCode(500, new { message = "Internal server error", details = ex.Message });
-    }
-}
+                var results = await _emailCollection
+                    .Aggregate()
+                    .Match(Builders<EmailData>.Filter.Gte(e => e.ReceivedDate, startDate))
+                    .Group(e => e.ReceivedDate.Date, 
+                        g => new SentimentData 
+                        {
+                            Period = g.Key.ToString("yyyy-MM-dd"),
+                            AverageScore = g.Average(x => x.Score),
+                            Count = g.Count()
+                        })
+                    .Sort(Builders<SentimentData>.Sort.Ascending(x => x.Period))
+                    .ToListAsync();
+
+                return Ok(results);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error retrieving sentiment trend");
+                return StatusCode(500, new { message = "Internal server error", details = ex.Message });
+            }
+        }
 
         [HttpGet]
         public async Task<ActionResult<IEnumerable<EmailData>>> GetAllEmails()
@@ -185,6 +196,29 @@ namespace SentimatrixAPI.Controllers
                 _logger.LogError(ex, "Error retrieving dashboard stats");
                 return StatusCode(500, new { message = "Internal server error", details = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Test the email processing functionality without hitting TruBot
+        /// </summary>
+        /// <returns>Processing result with status and message</returns>
+        /// <response code="200">Returns the processing result when successful</response>
+        /// <response code="500">If there's an error processing the email</response>
+        [HttpGet("test-email")]
+        public async Task<IActionResult> TestEmailProcessing()
+        {
+            // Create a test email data object
+            var testEmailData = new EmailData
+            {
+                Subject = "Good product",
+                Body = "<p>hey the coffe machine was good</p>",
+                SenderEmail = "testuser@example.com",
+                ReceiverEmail = "support@company.com"
+            };
+
+            // Call the existing ProcessEmail method from EmailProcessController
+            return await new EmailProcessController(_emailProcessLogger, _groqService, _hubContext, _emailService)
+                .ProcessEmail(testEmailData);
         }
     }
 }

@@ -38,5 +38,21 @@
     "SentimentScore": 20,
     "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
     "ProcessedAt": "2024-12-08T13:51:41.7703357Z"
+  },
+  {
+    "Subject": "Test Email Subject",
+    "Body": "This is a test email body for sentiment analysis.",
+    "SenderEmail": "testuser@example.com",
+    "SentimentScore": 55,
+    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
+    "ProcessedAt": "2024-12-14T14:55:18.9201514Z"
+  },
+  {
+    "Subject": "Good product",
+    "Body": "hey the coffe machine was good",
+    "SenderEmail": "testuser@example.com",
+    "SentimentScore": 40,
+    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
+    "ProcessedAt": "2024-12-14T14:57:06.5429862Z"
   }
 ]
