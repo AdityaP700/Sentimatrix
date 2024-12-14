@@ -1,12 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Bson;
-using MongoDB.Driver;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using SentimatrixAPI.Models;
 using SentimatrixAPI.Services;
+using SentimatrixAPI.Models;
 
 namespace SentimatrixAPI.Controllers
 {
@@ -15,170 +9,113 @@ namespace SentimatrixAPI.Controllers
     public class EmailController : ControllerBase
     {
         private readonly EmailService _emailService;
+        private readonly GroqService _groqService;
+        private readonly RedisService _redisService;
         private readonly ILogger<EmailController> _logger;
-        private readonly IMongoCollection<EmailData> _emailCollection;
 
         public EmailController(
-            EmailService emailService, 
-            ILogger<EmailController> logger, 
-            IMongoDatabase database)
+            EmailService emailService,
+            GroqService groqService,
+            RedisService redisService,
+            ILogger<EmailController> logger)
         {
-            _emailService = emailService ?? throw new ArgumentNullException(nameof(emailService));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _emailCollection = database.GetCollection<EmailData>("email");
-            // Log a message indicating successful connection
-            _logger.LogInformation("Successfully connected to the Email database.");
+            _emailService = emailService;
+            _groqService = groqService;
+            _redisService = redisService;
+            _logger = logger;
         }
 
-        [HttpGet("sentiment/{period}")]
-        public async Task<IActionResult> GetSentimentTrend(string period)
-{
-    try
-    {
-        DateTime startDate = period.ToUpper() switch
+        [HttpPost("analyze")]
+        public async Task<IActionResult> AnalyzeEmails([FromBody] List<string> emailIds)
         {
-            "1D" => DateTime.UtcNow.AddDays(-1),
-            "5D" => DateTime.UtcNow.AddDays(-5),
-            "1W" => DateTime.UtcNow.AddDays(-7),
-            "1M" => DateTime.UtcNow.AddMonths(-1),
-            _ => throw new ArgumentException("Invalid time period")
-        };
-
-        var results = await _emailCollection
-            .Aggregate()
-            .Match(Builders<EmailData>.Filter.Gte(e => e.ReceivedDate, startDate))
-            .Group(e => e.ReceivedDate.Date, 
-                g => new SentimentData 
+            try
+            {
+                // Get emails from database
+                var emails = await _emailService.GetEmailsByIds(emailIds);
+                if (!emails.Any())
                 {
-                    Period = g.Key.ToString("yyyy-MM-dd"),
-                    AverageScore = g.Average(x => x.Score),
-                    Count = g.Count()
-                })
-            .Sort(Builders<SentimentData>.Sort.Ascending(x => x.Period))
-            .ToListAsync();
+                    return NotFound("No emails found with the provided IDs");
+                }
 
-        return Ok(results);
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "Error retrieving sentiment trend");
-        return StatusCode(500, new { message = "Internal server error", details = ex.Message });
-    }
-}
+                // Analyze sentiments using Groq (with Redis caching)
+                var results = await _groqService.AnalyzeEmailsBatch(emails);
 
-        [HttpGet]
-        public async Task<ActionResult<IEnumerable<EmailData>>> GetAllEmails()
-        {
-            try
-            {
-                var emails = await _emailCollection.Find(new BsonDocument()).ToListAsync();
-                return Ok(emails);
+                // Update email records with sentiment scores
+                await _emailService.UpdateSentimentScores(results);
+
+                return Ok(results);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error retrieving all emails");
-                return StatusCode(500, new { message = "Internal server error", details = ex.Message });
+                _logger.LogError(ex, "Error analyzing emails");
+                return StatusCode(500, "An error occurred while analyzing emails");
             }
         }
 
-        [HttpGet("positive")]
-        public async Task<ActionResult<IEnumerable<EmailData>>> GetPositiveEmails(
-            [FromQuery] int page = 1, 
-            [FromQuery] int pageSize = 10)
+        [HttpGet("health/redis")]
+        public async Task<IActionResult> CheckRedisHealth()
         {
             try
             {
-                var emails = await _emailService.GetEmailsByScoreRangeAsync(70, 100);
-                var paginatedEmails = emails
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToList();
+                if (!_redisService.IsConnected)
+                {
+                    return StatusCode(500, new { 
+                        status = "unhealthy", 
+                        message = "Redis is not connected",
+                        details = "Connection to Redis server failed"
+                    });
+                }
 
-                return Ok(new 
-                { 
-                    Data = paginatedEmails, 
-                    Page = page, 
-                    PageSize = pageSize,
-                    TotalCount = emails.Count()
+                var testKey = "health:test";
+                var testValue = DateTime.UtcNow.ToString();
+                
+                // Test write
+                await _redisService.SetAsync(testKey, testValue, TimeSpan.FromSeconds(5));
+                
+                // Test read
+                var result = await _redisService.GetAsync<string>(testKey);
+                
+                if (result == testValue)
+                {
+                    return Ok(new { 
+                        status = "healthy", 
+                        message = "Redis is working properly",
+                        details = new {
+                            writeTest = "successful",
+                            readTest = "successful",
+                            value = result,
+                            connectionStatus = "connected"
+                        }
+                    });
+                }
+                else
+                {
+                    return StatusCode(500, new { 
+                        status = "unhealthy", 
+                        message = "Redis read/write test failed",
+                        details = new {
+                            writeTest = "successful",
+                            readTest = "failed",
+                            expectedValue = testValue,
+                            actualValue = result,
+                            connectionStatus = _redisService.IsConnected ? "connected" : "disconnected"
+                        }
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Redis health check failed");
+                return StatusCode(500, new { 
+                    status = "unhealthy", 
+                    message = "Redis connection failed",
+                    error = ex.Message,
+                    details = ex.StackTrace,
+                    innerException = ex.InnerException?.Message
                 });
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving positive emails");
-                return StatusCode(500, new { message = "Internal server error", details = ex.Message });
-            }
         }
 
-        [HttpGet("negative")]
-        public async Task<ActionResult<IEnumerable<EmailData>>> GetNegativeEmails(
-            [FromQuery] int page = 1, 
-            [FromQuery] int pageSize = 10)
-        {
-            try
-            {
-                var emails = await _emailService.GetEmailsByScoreRangeAsync(0, 30);
-                var paginatedEmails = emails
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToList();
-
-                return Ok(new 
-                { 
-                    Data = paginatedEmails, 
-                    Page = page, 
-                    PageSize = pageSize,
-                    TotalCount = emails.Count()
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving negative emails");
-                return StatusCode(500, new { message = "Internal server error", details = ex.Message });
-            }
-        }
-
-        [HttpGet("sender/{email}")]
-        public async Task<ActionResult<IEnumerable<EmailData>>> GetEmailsBySender(
-            string email, 
-            [FromQuery] int page = 1, 
-            [FromQuery] int pageSize = 10)
-        {
-            try
-            {
-                var emails = await _emailService.GetEmailsBySenderAsync(email);
-                var paginatedEmails = emails
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToList();
-
-                return Ok(new 
-                { 
-                    Data = paginatedEmails, 
-                    Page = page, 
-                    PageSize = pageSize,
-                    TotalCount = emails.Count()
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving emails by sender");
-                return StatusCode(500, new { message = "Internal server error", details = ex.Message });
-            }
-        }
-
-        [HttpGet("stats")]
-        public async Task<ActionResult<DashboardStats>> GetDashboardStats()
-        {
-            try
-            {
-                var stats = await _emailService.GetDashboardStatsAsync();
-                return Ok(stats);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error retrieving dashboard stats");
-                return StatusCode(500, new { message = "Internal server error", details = ex.Message });
-            }
-        }
+        // Other endpoints...
     }
 }

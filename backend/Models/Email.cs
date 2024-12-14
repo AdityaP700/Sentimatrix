@@ -10,11 +10,11 @@ namespace SentimatrixAPI.Models
         [BsonRepresentation(BsonType.ObjectId)]
         public string Id { get; set; } = string.Empty;
 
+        [BsonElement("subject")]
+        public string Subject { get; set; } = string.Empty;
+
         [BsonElement("body")]
         public string Body { get; set; } = string.Empty;
-
-        [BsonElement("score")]
-        public int Score { get; set; }
 
         [BsonElement("sender")]
         public string Sender { get; set; } = string.Empty;
@@ -22,15 +22,16 @@ namespace SentimatrixAPI.Models
         [BsonElement("receiver")]
         public string Receiver { get; set; } = string.Empty;
 
-        [BsonElement("type")]
-        public string Type { get; set; } = string.Empty;  // "positive" or "negative"
-
         [BsonElement("time")]
         public DateTime Time { get; set; }
 
-        public Email()
-        {
-            Time = DateTime.UtcNow;
-        }
+        [BsonElement("score")]
+        public int Score { get; set; }
+
+        [BsonElement("type")]
+        public string Type { get; set; } = string.Empty;
+
+        [BsonElement("sentimentscore")]
+        public int? SentimentScore { get; set; }
     }
 }

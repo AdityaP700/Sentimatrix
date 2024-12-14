@@ -1,42 +1,23 @@
 [
   {
-    "Subject": "Abc",
-    "Body": "This product is good",
-    "SenderEmail": "1@g",
-    "SentimentScore": 10,
-    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
-    "ProcessedAt": "2024-11-28T15:51:18.6832164Z"
+    "subject": "Great Experience",
+    "body": "I had an amazing experience with your product. Everything worked perfectly!",
+    "senderEmail": "happy@example.com",
+    "receiverEmail": "support@company.com",
+    "time": "2024-03-14T10:00:00Z"
   },
   {
-    "Subject": "Abc",
-    "Body": "This product is good",
-    "SenderEmail": "1@g",
-    "SentimentScore": 10,
-    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
-    "ProcessedAt": "2024-11-28T15:52:02.1285175Z"
+    "subject": "Negative Feedback",
+    "body": "I'm very disappointed with the service. Nothing works as expected.",
+    "senderEmail": "unhappy@example.com",
+    "receiverEmail": "support@company.com",
+    "time": "2024-03-14T11:00:00Z"
   },
   {
-    "Subject": "Great",
-    "Body": "Your product was great",
-    "SenderEmail": "priyanshusamal1234@gmail.com",
-    "SentimentScore": 5,
-    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
-    "ProcessedAt": "2024-11-28T16:46:23.4780127Z"
-  },
-  {
-    "Subject": "Great News About Project",
-    "Body": "I'm really excited to share that we've made excellent progress on the project. The team has done an amazing job!",
-    "SenderEmail": "alice@example.com",
-    "SentimentScore": 1,
-    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
-    "ProcessedAt": "2024-12-08T13:51:40.4461499Z"
-  },
-  {
-    "Subject": "Meeting Follow-up",
-    "Body": "Here are the action items from our meeting. Please review and let me know if you have any questions.",
-    "SenderEmail": "charlie@example.com",
-    "SentimentScore": 20,
-    "Response": "Thank you for your positive feedback! We're glad to hear about your experience and appreciate you taking the time to share it with us.",
-    "ProcessedAt": "2024-12-08T13:51:41.7703357Z"
+    "subject": "General Inquiry",
+    "body": "I would like to know more about your services.",
+    "senderEmail": "curious@example.com",
+    "receiverEmail": "info@company.com",
+    "time": "2024-03-14T12:00:00Z"
   }
 ]
